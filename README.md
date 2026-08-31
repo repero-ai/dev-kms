@@ -6,14 +6,57 @@
 
 It is **not** a production KMS. It provides no HSM, hardware-backed key protection, authentication, authorization, TLS, tenant isolation, secret storage, or arbitrary encrypt/decrypt API. Do not expose it to the public Internet.
 
-## Quick start
+## Quick start — use the published image
 
 ```bash
-docker compose up
+docker run --rm \
+  -p 127.0.0.1:8090:8080 \
+  -e DEV_KMS_DEFAULT_KEY_ID=dev-key \
+  -v dev-kms-data:/data \
+  ghcr.io/smncjl-labs/dev-kms:<version>
+
 curl http://localhost:8090/health
 ```
 
-Compose creates the default `dev-key` automatically and publishes only on loopback (`127.0.0.1:8090`). The service uses HTTP because it is intended for local Docker networks only; production KMS implementations **must** use authenticated TLS.
+Pin an explicit version for reproducible integrations. `latest` is the latest stable tagged release; `edge` is the latest build from `main` and is intended for development. The loopback mapping gives a developer direct host access without publicly exposing the service.
+
+The service uses HTTP because it is intended for local Docker networks only; production KMS implementations **must** use authenticated TLS.
+
+## Integrating into another Compose stack
+
+For a consuming application, use the published image in that application's Compose stack:
+
+```yaml
+services:
+  dev-kms:
+    image: ghcr.io/smncjl-labs/dev-kms:<version>
+    environment:
+      DEV_KMS_DEFAULT_KEY_ID: dev-key
+    volumes:
+      - dev-kms-data:/data
+
+  application:
+    environment:
+      KMS_ENDPOINT: http://dev-kms:8080
+      KMS_KEY_ID: dev-key
+
+volumes:
+  dev-kms-data:
+```
+
+Containers on the same Compose network reach the service at `http://dev-kms:8080`. Publishing a host port is unnecessary unless a developer needs direct host access. This is the expected integration model for projects such as Billing Platform.
+
+## Developing dev-kms itself
+
+The repository-local Compose file is for developing or testing the current checkout:
+
+```bash
+git clone https://github.com/smncjl-labs/dev-kms.git
+cd dev-kms
+docker compose up --build
+```
+
+Its `compose.yml` intentionally uses `build: .` so contributors exercise the local source tree. Downstream consumers should pull the published GHCR image instead of building dev-kms themselves.
 
 ## API
 
@@ -48,34 +91,13 @@ Billing Platform is one intended use case, but dev-kms has no code dependency on
 
 Keys are stored in SQLite at `/data/dev-kms.db`; the database and schema are created at startup. In V1, the wrapping/root key is deliberately stored in that SQLite database. This lets local containers retain KMS-like semantics across restarts, but it does **not** protect the database from an attacker and is not a bootstrap-secret system.
 
-Plaintext DEKs are never stored. To deliberately discard all local keys and data:
+Plaintext DEKs are never stored. To deliberately discard all local keys and data when using the repository Compose setup:
 
 ```bash
 docker compose down -v
 ```
 
-## Integration example
-
-```yaml
-services:
-  dev-kms:
-    image: ghcr.io/smncjl-labs/dev-kms:latest
-    environment:
-      DEV_KMS_DEFAULT_KEY_ID: dev-key
-
-  application:
-    environment:
-      KMS_ENDPOINT: http://dev-kms:8080
-      KMS_KEY_ID: dev-key
-```
-
-For a stable image, pin a version:
-
-```bash
-docker pull ghcr.io/smncjl-labs/dev-kms:1.0.0
-```
-
-Use `:latest` for the most recent stable release, or `:edge` to follow `main` development.
+Removing the named volume used by the standalone command (`docker volume rm dev-kms-data`) also destroys all disposable KMS state.
 
 ## CI and images
 
