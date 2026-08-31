@@ -1,0 +1,13 @@
+services:
+  dev-kms:
+    build: .
+    environment:
+      DEV_KMS_DEFAULT_KEY_ID: dev-key
+    ports:
+      - "127.0.0.1:8090:8080"
+    volumes:
+      - dev-kms-data:/data
+
+volumes:
+  dev-kms-data:
+
